@@ -1,0 +1,10 @@
+import { mkdir, cp, readFile, writeFile } from 'node:fs/promises';
+await mkdir('dist/vendor', { recursive: true });
+await cp('src', 'dist/src', { recursive: true });
+await cp('node_modules/three/build/three.module.js', 'dist/vendor/three.module.js');
+await cp('node_modules/three/build/three.core.js', 'dist/vendor/three.core.js');
+await cp('node_modules/three/LICENSE', 'dist/vendor/THREE-LICENSE.txt');
+await cp('node_modules/@dimforge/rapier3d-compat/rapier.es.js', 'dist/vendor/rapier.es.js');
+await cp('licenses/RAPIER-LICENSE.txt', 'dist/vendor/RAPIER-LICENSE.txt');
+await writeFile('dist/index.html', (await readFile('index.html', 'utf8')).replace('/node_modules/three/build/three.module.js', '/vendor/three.module.js').replace('/node_modules/@dimforge/rapier3d-compat/rapier.es.js', '/vendor/rapier.es.js'));
+console.log('Built standalone game in dist/. Preview: node scripts/serve.mjs --dist');

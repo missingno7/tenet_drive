@@ -1,0 +1,16 @@
+{
+  "name": "tenet-drive",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node --test tests/core.test.mjs"
+  },
+  "dependencies": {
+    "@dimforge/rapier3d-compat": "0.17.3",
+    "three": "0.180.0"
+  }
+}

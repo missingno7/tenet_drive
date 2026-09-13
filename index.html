@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#101a23" />
+  <meta name="description" content="Tenet Drive — an arcade driving prototype where your last run becomes solid, reversed history." />
+  <title>Tenet Drive</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='8' fill='%23101a23'/%3E%3Cpath d='M9 10h22v5h-8v17h-6V15H9z' fill='%23d9f57a'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/style.css" />
+  <script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","@dimforge/rapier3d-compat/rapier.es.js":"/node_modules/@dimforge/rapier3d-compat/rapier.es.js"}}</script>
+</head>
+<body>
+  <canvas id="game" aria-label="Tenet Drive 3D race course"></canvas>
+  <div id="vignette"></div>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">↯</span><span>TENET<span class="brand-light"> DRIVE</span><small>TEMPORAL MOTORSPORT / PROTOTYPE 01</small></span></div>
+    <div class="top-actions"><button id="sound" aria-label="Enable sound">SOUND OFF</button><button id="help" aria-label="Open controls">? <span>CONTROLS</span></button><button id="pause" aria-label="Pause game">Ⅱ</button></div>
+  </header>
+  <main id="hud">
+    <section class="run-panel"><div class="eyebrow">CURRENT TIMELINE <span id="record-light">● REC</span></div><div class="run-line"><span id="run-number">01</span><div><strong id="direction">A <i>→</i> B</strong><span id="run-label">ESTABLISH HISTORY</span></div></div><div class="run-stats"><div><label>RUN TIME</label><b id="time">00:00.00</b></div><div><label>PROXIMITY SCORE</label><b id="score">0</b></div></div></section>
+    <section class="map-panel"><div class="eyebrow">01 / THE CAUSEWAY <span>620 M</span></div><canvas id="map" width="300" height="220" aria-label="Course map with player and echo positions"></canvas><div class="map-key"><span><i class="dot player"></i>YOU</span><span><i class="dot echo"></i>PREVIOUS YOU</span></div></section>
+    <section id="echo-panel" class="echo-panel"><div class="eyebrow">TEMPORAL PROXIMITY <span id="echo-status">NO HISTORY</span></div><div class="proximity"><b id="distance">—</b><span>m</span><strong id="multiplier">×0</strong></div><div class="proximity-track"><i id="proximity-fill"></i></div><p id="echo-hint">Complete a run to create your first echo.</p></section>
+    <div class="course-progress"><span id="progress-start">A</span><div><i id="progress-fill"></i></div><span id="progress-end">B</span></div>
+    <section class="speed-panel"><div><b id="speed">000</b><span>KM/H</span></div><div class="speed-track"><i id="speed-fill"></i></div><small id="surface">READY TO DRIVE</small></section>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <div class="bottom-controls"><span><kbd>W A S D</kbd> DRIVE</span><span><kbd>SPACE</kbd> DRIFT</span><button id="restart"><kbd>R</kbd> RESTART</button><button id="debug-toggle"><kbd>F3</kbd> TELEMETRY</button></div>
+    <div id="debug-panel" hidden><pre id="debug-text"></pre><p>Magenta: replay / boxes: colliders / amber: bounds</p></div>
+  </main>
+  <div id="overlay" class="overlay">
+    <section class="modal" id="modal">
+      <div class="eyebrow">01 / THE CAUSEWAY</div>
+      <h1>HISTORY HAS<br><em>RIGHT OF WAY.</em></h1>
+      <p>Drive the course. Turn around. Race beside your last run, played backwards. Get close to score. Touch it, and only you move.</p>
+      <div class="intro-rule"><span>01 <b>DRIVE</b></span><i>→</i><span>02 <b>REVERSE</b></span><i>→</i><span>03 <b>ADAPT</b></span></div>
+      <button class="primary" id="start">START YOUR TIMELINE <span>↗</span></button>
+      <div class="modal-controls"><span><kbd>WASD</kbd> / <kbd>↑↓←→</kbd> DRIVE</span><span><kbd>SPACE</kbd> HANDBRAKE</span><span><kbd>R</kbd> RETRY</span></div>
+      <small>One car. One immutable echo. A different race every time.</small>
+    </section>
+  </div>
+  <div id="touch-controls" aria-label="Touch driving controls"><button data-control="left" aria-label="Steer left">◀</button><button data-control="right" aria-label="Steer right">▶</button><button data-control="brake" aria-label="Brake or reverse">BRAKE</button><button data-control="throttle" aria-label="Accelerate">GO</button></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
