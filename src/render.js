@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { VEHICLE, lerp } from './config.js';
 import { interpolateState } from './replay.js';
-import { buildScenery, terrainHeight } from './scenery.js';
-import { DECK_THICKNESS, roadSlabGeometry, signPanel } from './world-geometry.js';
+import { buildScenery } from './scenery.js';
+import { roadSlabGeometry, signPanel } from './world-geometry.js';
 import { ImpactEffects } from './impact-effects.js';
+import { infrastructure } from './infrastructure.js';
+import { CAR_PARTS } from './car-parts.js';
 
 const COLORS = { road: 0x303f48, curb: 0xecddd0, orange: 0xf46840, lime: 0xddf78a, echo: 0xf684de };
 const material = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.68, ...extra });
@@ -42,13 +44,11 @@ function car(echo = false) {
   group.add(block(1.82, 0.43, 3.75, paint, 0, -0.07, 0));
   group.add(block(1.91, 0.14, 3.95, darkMat, 0, -0.33, 0));
   const cabin = block(1.48, 0.52, 1.65, glass, 0, 0.39, -0.26); group.add(cabin);
-  group.add(block(1.52, 0.06, 1.32, paint, 0, 0.67, -0.4));
-  group.add(block(0.17, 0.022, 1.06, curbMat, -0.32, 0.155, 1.24));
-  group.add(block(0.17, 0.022, 1.06, curbMat, 0.32, 0.155, 1.24));
+
   group.add(block(0.5, 0.1, 0.05, neon, -0.57, 0.07, 1.9), block(0.5, 0.1, 0.05, neon, 0.57, 0.07, 1.9));
   const tail = material(0xff5038, { emissive: 0xff2200, emissiveIntensity: 0.7 });
   group.add(block(1.5, 0.08, 0.06, echo ? neon : tail, 0, 0.02, -1.91));
-  group.add(block(1.96, 0.09, 0.4, darkMat, 0, 0.48, -1.63));
+
   for (const x of [-0.62, 0.62]) group.add(block(0.09, 0.35, 0.08, darkMat, x, 0.26, -1.62));
   const wheels = [];
   const rubber = material(0x101a20);
@@ -62,6 +62,12 @@ function car(echo = false) {
   if (echo) {
     group.add(block(0.04, 0.03, 3.7, neon, -0.91, 0.16, 0), block(0.04, 0.03, 3.7, neon, 0.91, 0.16, 0));
     const ring = new THREE.Mesh(new THREE.TorusGeometry(1.45, 0.022, 4, 48), neon); ring.rotation.x = Math.PI / 2; ring.position.y = -0.57; group.add(ring);
+  }
+  group.userData.parts = new Map();
+  for (const part of CAR_PARTS) {
+    const mesh = block(...part.size, part.material === 'paint' ? paint : darkMat, ...part.position);
+    if (part.id === 'hood') for (const x of [-0.32, 0.32]) mesh.add(block(0.17, 0.022, 1.06, curbMat, x, 0.055, 0));
+    mesh.name = part.id; group.add(mesh); group.userData.parts.set(part.id, mesh);
   }
   group.userData.wheels = wheels;
   return group;
@@ -103,7 +109,7 @@ export class WorldRenderer {
     this.scene.add(this.sun, this.sun.target);
     this.buildEnvironment(); this.buildTrack();
     this.player = car(); this.echo = car(true); this.scene.add(this.player, this.echo);
-    this.impactEffects = new ImpactEffects(this.scene);
+    this.impactEffects = new ImpactEffects(this.scene); this.debrisMeshes = new Map();
     const colliderGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(VEHICLE.halfWidth * 2, VEHICLE.halfHeight * 2, VEHICLE.halfLength * 2));
     this.playerBox = new THREE.LineSegments(colliderGeo, new THREE.LineBasicMaterial({ color: 0xdff98b }));
     this.echoBox = new THREE.LineSegments(colliderGeo, new THREE.LineBasicMaterial({ color: 0xff9bec })); this.scene.add(this.playerBox, this.echoBox);
@@ -139,32 +145,16 @@ export class WorldRenderer {
         }
       }
     }
-    for (let z = 0; z <= track.length; z += 28) for (const lane of track.lanes(z)) {
-      const base = terrainHeight(lane.center, z, track), underside = track.height(z) - DECK_THICKNESS;
-      this.scene.add(block(1.3, underside - base, 2, wallMat, lane.center, (underside + base) / 2, z));
-      this.scene.add(block(lane.width * 0.78, 0.5, 1.8, wallMat, lane.center, underside - 0.25, z));
-      this.scene.add(block(2.5, 0.8, 3, wallMat, lane.center, base + 0.4, z));
-    }
-    for (const { x, y, z, side } of track.bollards) {
-      this.scene.add(block(0.14, 1.2, 0.16, darkMat, x, y + 0.55, z));
-      this.scene.add(block(0.2, 0.24, 0.2, limeMat, x, y + 1.25, z));
-      this.scene.add(block(0.85, 0.15, 0.3, wallMat, x - side * 0.3, y - 0.15, z));
+    const materials = { concrete: wallMat, dark: darkMat, lime: limeMat };
+    for (const object of infrastructure(track)) {
+      const [w, h, d] = object.size, [x, y, z] = object.position;
+      const mesh = object.text ? signPanel(w, h, darkMat, label(object.text)) : block(w, h, d, materials[object.material]);
+      if (object.text) mesh.scale.z = d / 0.24;
+      mesh.position.set(x, y, z); mesh.name = object.id; this.scene.add(mesh);
     }
     const boundsGeo = new THREE.BufferGeometry(); boundsGeo.setAttribute('position', new THREE.Float32BufferAttribute(edges, 3));
     this.bounds = new THREE.LineSegments(boundsGeo, new THREE.LineBasicMaterial({ color: 0xffcc6a })); this.scene.add(this.bounds);
-    this.gate(track.a, 'A', 'ORIGIN'); this.gate(track.b, 'B', 'INVERSION');
-    for (const { x, y, z, text, width, height } of track.signs) {
-      const panelY = y + 4.4;
-      for (const side of [-1, 1]) {
-        const postX = x + side * width * 0.3, ground = terrainHeight(postX, z, track);
-        const postTop = panelY - height / 2 + 0.1;
-        this.scene.add(block(0.3, postTop - ground, 0.3, wallMat, postX, (postTop + ground) / 2, z));
-        const footingTop = Math.max(ground + 0.6, -0.3);
-        this.scene.add(block(1, footingTop - ground, 1.1, wallMat, postX, (footingTop + ground) / 2, z));
-      }
-      this.scene.add(block(width * 0.8, 0.16, 0.38, darkMat, x, panelY - 0.6, z));
-      const sign = signPanel(width, height, darkMat, label(text)); sign.position.set(x, panelY, z); sign.name = 'roadside-sign'; this.scene.add(sign);
-    }
+    this.finishPaint(track.a); this.finishPaint(track.b);
     for (const z of [405, 450]) {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(13, 0.24, 6, 64), orangeMat); ring.position.set(track.center(z), 15, z); this.scene.add(ring);
     }
@@ -172,11 +162,8 @@ export class WorldRenderer {
       const bar = block(17.8, 0.02, 0.2, limeMat, track.center(z), track.height(z) + 0.035, z); this.scene.add(bar);
     }
   }
-  gate(z, letter, title) {
-    const lane = this.track.lanes(z)[0], x = lane.center, y = this.track.height(z), halfWidth = lane.width / 2;
-    for (const side of [-1, 1]) { this.scene.add(block(0.6, 7, 0.7, darkMat, x + side * (halfWidth + 0.5), y + 3.5, z)); this.scene.add(block(0.12, 6, 0.78, limeMat, x + side * (halfWidth + 0.15), y + 3.5, z)); }
-    this.scene.add(block(lane.width + 1.6, 1.25, 0.75, darkMat, x, y + 7, z));
-    const sign = signPanel(13, 1.06, darkMat, label(`${letter}  /  ${title}`)); sign.scale.z = 3.3; sign.position.set(x, y + 7, z); this.scene.add(sign);
+  finishPaint(z) {
+    const lane = this.track.lanes(z)[0], y = this.track.height(z);
     const cellWidth = lane.width / 20;
     for (let i = 0; i < 20; i++) for (let j = 0; j < 2; j++) this.scene.add(block(cellWidth, 0.025, 0.7, (i + j) % 2 ? darkMat : curbMat, lane.left + (i + 0.5) * cellWidth, y + 0.025, z - 0.7 + j * 0.7));
   }
@@ -196,8 +183,19 @@ export class WorldRenderer {
     mesh.position.set(state.position.x, state.position.y, state.position.z);
     mesh.quaternion.set(state.rotation.x, state.rotation.y, state.rotation.z, state.rotation.w);
   }
+  updateDamage(physics) {
+    for (const [id, mesh] of this.player.userData.parts) mesh.visible = !physics.detached.has(id);
+    for (const [body, mesh] of this.debrisMeshes) if (!physics.debris.some(p => p.body === body)) { this.scene.remove(mesh); this.debrisMeshes.delete(body); }
+    for (const part of physics.debris) {
+      if (!this.debrisMeshes.has(part.body)) {
+        const mesh = this.player.userData.parts.get(part.id).clone(); mesh.visible = true; this.scene.add(mesh); this.debrisMeshes.set(part.body, mesh);
+      }
+      this.pose(this.debrisMeshes.get(part.body), { position: part.body.translation(), rotation: part.body.rotation() });
+    }
+  }
   render(run, alpha, dt, wallTime) {
-    this.impactEffects.update(run.crash);
+    this.impactEffects.update(run.effect);
+    this.updateDamage(run.physics);
     this.updateHistory(run.history);
     const playing = run.status === 'playing' && !run.paused;
     const state = playing ? interpolateState(run.previousPlayer, run.player, alpha) : run.player;
@@ -208,6 +206,9 @@ export class WorldRenderer {
     if (echoState) this.pose(this.echo, echoState);
     for (const mesh of [this.player, this.echo]) for (const wheel of mesh.userData.wheels) {
       if (playing) wheel.rotation.x += (mesh === this.player ? run.player.speed : -Math.hypot(echoState?.linearVelocity.x ?? 0, echoState?.linearVelocity.z ?? 0)) * dt / 0.39;
+    }
+    for (const [i, wheel] of this.player.userData.wheels.entries()) {
+      const pose = run.player.wheels?.[i]; if (pose) { wheel.position.y = pose.y; wheel.rotation.set(pose.spin, pose.steer, 0, 'YXZ'); }
     }
     this.chase.update(state, run.direction, dt, run.player.speed, run.status === 'intro');
     const p = state.position; this.sun.position.set(p.x - 55, p.y + 85, p.z - 30); this.sun.target.position.set(p.x, p.y, p.z + 20);

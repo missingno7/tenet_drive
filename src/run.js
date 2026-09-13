@@ -31,7 +31,7 @@ export class RunManager {
     this.recorder = new ReplayRecorder(PHYSICS.dt); this.recorder.record(this.player);
     this.scoring = new ScoringSystem(); this.checkpoints = new CheckpointSystem(this.track, this.direction);
     this.ticks = 0; this.elapsed = 0; this.stuckTime = 0; this.transitionTime = 0; this.impact = 0; this.notice = null;
-    this.crash = null; this.rolloverTime = 0;
+    this.crash = null; this.effect = null; this.rolloverTime = 0; this.submergedTime = 0; this.wasWet = false;
   }
   start() { this.status = 'playing'; this.paused = false; }
   restart() {
@@ -42,11 +42,14 @@ export class RunManager {
   newTimeline() { this.history = null; this.direction = 1; this.runNumber = 1; this.lastResult = null; this.restart(); }
   advance() { this.direction *= -1; this.runNumber++; this.resetAttempt(); this.status = 'playing'; this.notice = 'DIRECTION REVERSED / WATCH YOUR PREVIOUS SELF'; }
   fail(reason) { this.status = 'failed'; this.transitionTime = RUN.failureSeconds; this.notice = reason + ' / RETRYING'; }
-  crashAt(kind, impact) {
-    this.crash = { id: ++this.crashSerial, kind, impact, age: 0, position: { ...this.player.position } };
-    if (kind === 'water') { this.crash.position.y = WATER_LEVEL; this.physics.sink(); }
+  impactEffect(kind, impact, position = this.player.position) {
+    this.effect = { id: ++this.crashSerial, kind, impact, age: 0, position: { ...position } };
+    if (kind === 'water') this.effect.position.y = WATER_LEVEL;
+  }
+  crashAt(kind, impact, position = this.player.position) {
+    this.impactEffect(kind, impact, position); this.crash = this.effect;
     this.status = 'failed'; this.transitionTime = 2.2;
-    this.notice = kind === 'water' ? 'TIMELINE SUBMERGED' : 'TIMELINE SHATTERED';
+    this.notice = kind === 'water' ? 'ENGINE SUBMERGED' : 'VEHICLE WRECKED';
   }
   finish() {
     this.lastResult = { time: this.elapsed, score: Math.floor(this.scoring.score), bestGap: this.scoring.bestGap, maxMultiplier: this.scoring.maxMultiplier, direction: this.direction, runNumber: this.runNumber };
@@ -56,14 +59,10 @@ export class RunManager {
   step(input) {
     const dt = PHYSICS.dt;
     if (this.paused || this.status === 'intro') return;
+    if (this.effect) { this.effect.age += dt; if (this.effect.age > 2.2) this.effect = null; }
     if (this.status === 'transition' || this.status === 'failed') {
       if (this.crash) {
-        this.crash.age += dt;
         for (let i = 0; i < PHYSICS.substeps; i++) {
-          if (this.crash.kind === 'water') {
-            const v = this.physics.body.linvel();
-            this.physics.body.setLinvel({ x: v.x * 0.993, y: -1.7, z: v.z * 0.993 }, true);
-          }
           this.physics.step(this.player, input, dt / PHYSICS.substeps, this.echoState, false);
         }
       }
@@ -87,10 +86,11 @@ export class RunManager {
       this.scoring.step(subDt, this.player, this.echoState, contact);
       if (this.scoring.event) this.notice = this.scoring.event;
       else if (result.impact > 5) this.notice = result.contacts.has('echo') ? 'HISTORY DOES NOT YIELD' : 'HARD CONTACT';
-      if (result.water || result.contacts.has('terrain')) {
-        this.crashAt(result.water ? 'water' : 'terrain', Math.max(result.impact, fallSpeed));
-        return;
-      }
+      if (result.water && !this.wasWet) this.impactEffect('water', fallSpeed);
+      this.wasWet = result.water;
+      this.submergedTime = result.submerged > 0.65 ? this.submergedTime + subDt : 0;
+      if (this.submergedTime > 0.8) { this.crashAt('water', fallSpeed); return; }
+      if (result.impact > 18) { this.crashAt('terrain', result.impact, result.point); return; }
     }
     this.ticks++; this.elapsed = this.ticks * dt;
     this.recorder.record(this.player);

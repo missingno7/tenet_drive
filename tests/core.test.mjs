@@ -203,9 +203,9 @@ test('rigid body tips when its center of mass passes the road edge, in both trav
   for (const yaw of [0, Math.PI]) for (const side of [-1, 1]) {
     physics.reset(player, null);
     physics.teleport(player, { x: side * (track.width(40) / 2 + 0.15), y: 12.65, z: 40 }, rotationFromAngles(yaw));
-    coast(physics, player, 1);
+    coast(physics, player, 1.8);
     assert.ok(player.upright < 0.8, `Car remained artificially upright: ${player.upright}`);
-    assert.ok(Math.abs(player.angularVelocity.x) + Math.abs(player.angularVelocity.z) > 0.3);
+    assert.ok(player.position.y < 11, "Unsupported car must fall, not be held at the edge");
   }
 });
 
@@ -268,14 +268,17 @@ test('falls reach water, sink visibly, then retry without replacing valid histor
   assert.equal(run.crash?.kind, 'water'); assert.equal(run.crash.position.y, WATER_LEVEL); assert.equal(run.history, history);
   const y = run.player.position.y;
   for (let i = 0; i < 90; i++) run.step(idle);
-  assert.ok(run.player.position.y < y - 0.8); assert.equal(run.status, 'failed');
+  assert.ok(run.physics.collider.isEnabled());
+  assert.ok(run.player.position.y < WATER_LEVEL);
+  assert.ok(run.player.position.y > terrainSurfaceHeight(run.player.position.x, run.player.position.z, run.track));
+  assert.equal(run.status, 'failed');
   for (let i = 0; i < 210; i++) run.step(idle);
   assert.equal(run.status, 'playing'); assert.equal(run.direction, -1); assert.equal(run.runNumber, 2); assert.equal(run.history, history); assert.equal(run.crash, null);
 });
 
 test('terrain crashes show an impact sequence and pause freezes the crash animation', t => {
   const run = new RunManager(new TrackManager()); t.after(() => run.physics.dispose()); run.start();
-  run.physics.teleport(run.player, { x: 50, y: 18, z: 40 }, rotationFromAngles(0), { x: 0, y: -10, z: 0 });
+  run.physics.teleport(run.player, { x: 55, y: 30, z: 90 }, rotationFromAngles(0), { x: 0, y: -45, z: 0 });
   for (let i = 0; i < 240 && !run.crash; i++) run.step(idle);
   assert.equal(run.crash?.kind, 'terrain'); assert.ok(run.crash.impact > 10);
   const age = run.crash.age, position = { ...run.player.position }; run.paused = true;

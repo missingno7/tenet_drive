@@ -48,9 +48,9 @@ export class GameAudio {
     } else this.stopEcho();
     this.lastElapsed = run.elapsed;
     if (run.paused) { this.stopVoices(); return; }
-    if (run.crash && run.crash.id !== this.lastCrash) {
-      this.lastCrash = run.crash.id;
-      if (run.crash.age < 0.7) this.playImpact(run.crash.kind, 1.2);
+    if (run.effect && run.effect.id !== this.lastCrash) {
+      this.lastCrash = run.effect.id;
+      if (run.effect.age < 0.7) this.playImpact(run.effect.kind, 1.2);
     } else if (active && run.impact > 5 && t - this.lastImpact > 0.35) {
       this.lastImpact = t; this.playImpact('terrain', clamp(run.impact / 30, 0.12, 0.7));
     }
