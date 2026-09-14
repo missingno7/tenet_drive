@@ -93,6 +93,8 @@ Water is a volume between the submerged terrain and river surface. Each physics 
 
 Road rendering and physics share slab vertices. Adjacent collision vertices are welded, internal end caps are omitted, and Rapier corrects internal triangle edges. The terrain collider uses the exact rendered triangle mesh. Water detection samples that mesh to distinguish submerged riverbed from land.
 
+All world colliders are static. Road triangles are grouped into 64 m longitudinal sections and terrain into 128 m spatial tiles so Rapier can reject distant geometry before detailed contact/CCD queries. Partitioning preserves every original face and its winding; every section remains enabled, including while falling, underwater, or shedding debris. Immutable rendering geometry is separately batched by material and 64 m region, retaining shadows, textures and spatial culling.
+
 The echo retains a kinematic rounded-box body envelope. Each substep sets its position and quaternion from the authoritative reverse sample. Collision impulses affect the live car only. Proximity scoring uses rounded body envelopes in full 3D, including pitch and roll; it does not reward gaps opened by missing panels.
 
 At every complete tick, the recorder copies position, quaternion, linear velocity and angular velocity. An initial frame is recorded at time zero. Timestamps come from integer tick indices. Successful runs finalize deeply frozen recordings; samples use binary search, vector interpolation and shortest-arc quaternion slerp. Reverse playback samples T minus t and negates velocities. No input resimulation is used.
@@ -118,6 +120,14 @@ Points per second equal base rate times proximity multiplier times speed factor 
 `npm test` covers immutable reverse replay, render-independent samples, 3D clearance, scoring, road and prop geometry, edge tipping in both directions, stable edge support, road fascia and underside collisions, bollards at 360 km/h, exact kinematic echo motion during impacts, terrain landings, water sinking and retry, crash pause behavior, four alternating completed runs through both branches and jumps, and deterministic reverse/impact audio. Additional regressions cover gentle edge brushing, partial overhang, airborne controls, solid pillars above/below water, escaping water, shore landings, breakaway-part mass and debris reset.
 
 F3 displays the recorded path, collider bounds, track boundaries, clearance, time, samples, checkpoints, impact speed and FPS. `window.tenetDrive.snapshot()` is a read-only browser inspection helper.
+
+### Performance checks
+
+Run `npm run benchmark` (or `node scripts/benchmark-physics.mjs`) and then the same command with `--reference` to compare partitioned and monolithic collision meshes. Each reports medians from three five-second simulations for normal driving, a passing echo, and water immersion. Timings include separate Rapier stepping, tire and water costs; both modes retain all scenery, 240 Hz physics, CCD and solver settings. Run them sequentially without other CPU-heavy tasks.
+
+With the development server running, open `/scripts/benchmark-render.html` and its reference link to compare static batching at the same viewpoint. Rendering is measured separately from simulation, with GPU synchronization confined to this diagnostic page. Terrain, water and shadow ablations help identify rendering costs. Geometry tests also check that partitioning preserves all faces, terrain contact heights, seam stability, and batched materials/UVs/normals/shadow flags.
+
+On the development machine, five seconds of road simulation fell from 2,139 ms to 797 ms (63% less CPU time), and the echo scenario from 2,687 ms to 1,431 ms (47% less). Water immersion was 1,117 ms versus 1,271 ms; partitioning benefits driving more than this low-speed submerged case. The fixed rendering view went from 1,220 to 155 draw calls and about 2.7 ms to 0.7 ms per render. These are diagnostic timings, not guaranteed frame rates; hardware, viewpoint and contacts affect results.
 
 ## Prototype limitations
 

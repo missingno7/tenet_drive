@@ -2,11 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TrackManager } from '../src/track.js';
 import { PhysicsWorld } from '../src/physics.js';
+import RAPIER from '../src/rapier.js';
 import { VehicleController, rotationFromAngles } from '../src/vehicle.js';
 import { RunManager } from '../src/run.js';
-import { terrainSurfaceHeight, WATER_LEVEL } from '../src/surfaces.js';
+import { terrainSurfaceHeight, WATER_LEVEL, roadMeshData, roadCollisionMeshes, terrainMeshData, terrainCollisionMeshes } from '../src/surfaces.js';
 import { infrastructure } from '../src/infrastructure.js';
 import { CAR_PARTS } from '../src/car-parts.js';
+import * as THREE from 'three';
+import { batchStaticMeshes } from '../src/static-batch.js';
 const idle = { throttle: 0, brake: 0, steer: 0, handbrake: false }, dt = 1 / 480;
 function setup(t) { const track=new TrackManager(),physics=new PhysicsWorld(track,{scenery:false}),player=new VehicleController(0,40,0,track);physics.reset(player,null);t.after(()=>physics.dispose());return {track,physics,player}; }
 function step(physics,player,seconds,input=idle){let peak=0,tags=new Set();for(let i=0;i<seconds/dt;i++){const r=physics.step(player,input,dt,null);peak=Math.max(peak,r.impact);r.contacts.forEach(tag=>tags.add(tag));}return{peak,tags};}
@@ -71,4 +74,42 @@ test('hard collision detaches real car parts that collide with the world and res
  assert.ok(parts.some(p=>p.body.translation().y<p.y));
  for(const p of physics.debris){assert.ok(p.body.isDynamic());assert.ok(p.body.collider(0).isEnabled());assert.ok(p.body.isCcdEnabled());}
  physics.reset(player,null);assert.equal(physics.debris.length,0);assert.equal(physics.detached.size,0);assert.equal(physics.parts.size,CAR_PARTS.length);assert.ok(Math.abs(physics.body.mass()-900)<.01);
+});
+
+test('road sections preserve every source triangle once, including sides and underside', () => {
+ const track = new TrackManager(), original = roadMeshData(track), sections = roadCollisionMeshes(track);
+ const triangles = data => { const result=[]; for(let i=0;i<data.indices.length;i+=3) result.push(Array.from(data.indices.subarray(i,i+3)).map(id=>Array.from(data.vertices.subarray(id*3,id*3+3)).join(',')).join('|')); return result; };
+ assert.deepEqual(sections.flatMap(triangles).sort(), triangles(original).sort());
+ assert.ok(sections.length >= 9 && sections.length <= 11);
+ for(const section of sections){const z=Array.from(section.vertices).filter((_,i)=>i%3===2);assert.ok(Math.max(...z)-Math.min(...z)<=68);}
+});
+
+test('driving across collision-section seams causes no artificial impacts in either direction', t => {
+ const {track,physics,player}=setup(t);
+ for(let z=64;z<track.length;z+=64)for(const direction of[-1,1]){
+  const start=z-direction*1.2,lane=track.lanes(start)[0],yaw=track.heading(start,direction);
+  physics.reset(player,null);physics.teleport(player,{x:lane.center,y:track.height(start)+.68,z:start},rotationFromAngles(yaw));
+  step(physics,player,.2);
+  physics.teleport(player,player.position,player.rotation,{x:Math.sin(yaw)*12,y:0,z:Math.cos(yaw)*12});
+  const result=step(physics,player,.2);assert.ok(result.peak<5,`Seam at ${z}, direction ${direction}: ${result.peak}`);assert.ok(player.upright>.96);
+ }
+});
+
+test('terrain partitioning retains all triangles and accurate contact heights across tile boundaries', t => {
+ const {track,physics}=setup(t), source=terrainMeshData(track), chunks=terrainCollisionMeshes(track);
+ assert.equal(chunks.reduce((sum,c)=>sum+c.indices.length,0),source.indices.length);
+ const signature=data=>{const set=new Map();for(let i=0;i<data.indices.length;i+=3){const triangle=Array.from(data.indices.subarray(i,i+3)).map(id=>Array.from(data.vertices.subarray(id*3,id*3+3)).join(',')).join('|');set.set(triangle,(set.get(triangle)??0)+1);}return set;};
+ const combined=new Map();for(const c of chunks)for(const[key,value]of signature(c))combined.set(key,(combined.get(key)??0)+value);assert.deepEqual(combined,signature(source));
+ for(const x of [-256.001,-256,-255.999,-128,0,50,127.999,128,128.001,256,350])for(const z of [-103,0,40,90,127.999,128,128.001,256,512]){
+  const hit=physics.world.castRay(new RAPIER.Ray({x,y:100,z},{x:0,y:-1,z:0}),150,true,undefined,undefined,physics.collider,physics.body,c=>physics.tags.get(c.handle)==='terrain');
+  assert.ok(hit,`Missing terrain at ${x},${z}`);assert.ok(Math.abs(100-hit.timeOfImpact-terrainSurfaceHeight(x,z,track))<.0001);
+ }
+});
+
+test('static batching preserves transformed faces, materials and shadows', () => {
+ const scene=new THREE.Scene(),red=new THREE.MeshStandardMaterial({color:'red'}),blue=new THREE.MeshStandardMaterial({color:'blue'}),group=new THREE.Group();group.position.set(4,2,8);group.rotation.y=.3;scene.add(group);
+ for(let i=0;i<3;i++){const mesh=new THREE.Mesh(new THREE.BoxGeometry(2+i,1,3),[red,red,blue,red,red,blue]);mesh.position.set(i*3,0,0);mesh.castShadow=mesh.receiveShadow=true;group.add(mesh);}
+ const collect=()=>{scene.updateMatrixWorld(true);const rows=[];scene.traverse(mesh=>{if(!mesh.isMesh)return;const geo=mesh.geometry.index?mesh.geometry.toNonIndexed():mesh.geometry.clone();geo.applyMatrix4(mesh.matrixWorld);const groups=Array.isArray(mesh.material)?geo.groups:[{start:0,count:geo.attributes.position.count,materialIndex:0}],materials=Array.isArray(mesh.material)?mesh.material:[mesh.material];for(const g of groups)for(let i=g.start;i<g.start+g.count;i++){const p=geo.attributes.position,n=geo.attributes.normal,uv=geo.attributes.uv;rows.push([materials[g.materialIndex].uuid,mesh.castShadow,mesh.receiveShadow,...[p.getX(i),p.getY(i),p.getZ(i),n.getX(i),n.getY(i),n.getZ(i),uv.getX(i),uv.getY(i)].map(v=>v.toFixed(5))].join('|'));}geo.dispose();});return rows.sort();};
+ const before=collect(),stats=batchStaticMeshes(scene);assert.deepEqual(collect(),before);assert.equal(stats.sourceMeshes,3);assert.equal(stats.batches,2);
+ const distant=new THREE.Mesh(new THREE.BoxGeometry(),red);distant.position.z=400;scene.add(distant);const count=batchStaticMeshes(scene);assert.ok(count.batches>=3);
 });

@@ -6,6 +6,7 @@ import { roadSlabGeometry, signPanel } from './world-geometry.js';
 import { ImpactEffects } from './impact-effects.js';
 import { infrastructure } from './infrastructure.js';
 import { CAR_PARTS } from './car-parts.js';
+import { batchStaticMeshes } from './static-batch.js';
 
 const COLORS = { road: 0x303f48, curb: 0xecddd0, orange: 0xf46840, lime: 0xddf78a, echo: 0xf684de };
 const material = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.68, ...extra });
@@ -92,7 +93,7 @@ export class CameraController {
 }
 
 export class WorldRenderer {
-  constructor(canvas, track) {
+  constructor(canvas, track, { batchStatics = true } = {}) {
     this.track = track; this.debug = false; this.history = null;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
@@ -108,6 +109,7 @@ export class WorldRenderer {
     this.sun.shadow.normalBias = 0.04; this.sun.shadow.bias = -0.00015;
     this.scene.add(this.sun, this.sun.target);
     this.buildEnvironment(); this.buildTrack();
+    if (batchStatics) this.staticBatches = batchStaticMeshes(this.scene);
     this.player = car(); this.echo = car(true); this.scene.add(this.player, this.echo);
     this.impactEffects = new ImpactEffects(this.scene); this.debrisMeshes = new Map();
     const colliderGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(VEHICLE.halfWidth * 2, VEHICLE.halfHeight * 2, VEHICLE.halfLength * 2));

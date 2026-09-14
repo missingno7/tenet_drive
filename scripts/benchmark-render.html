@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Tenet Drive rendering benchmark</title>
+<style>
+  body { margin: 0; background: #10232a; color: white; font: 14px monospace; }
+  canvas { position: fixed; inset: 0; }
+  section { position: fixed; top: 10px; left: 10px; max-width: 330px; padding: 12px; background: #10232ae8; }
+  button { padding: 8px; } a { color: #ddf78a; } pre { white-space: pre-wrap; }
+</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","@dimforge/rapier3d-compat/rapier.es.js":"/node_modules/@dimforge/rapier3d-compat/rapier.es.js"}}</script>
+<canvas></canvas>
+<section>
+  <p id="mode"></p>
+  <p><a href="?">Optimized</a> · <a href="?reference">Unbatched reference</a></p>
+  <button id="run">Benchmark rendering</button>
+  <pre id="output">Ready. Simulation is paused; timings include GPU completion.</pre>
+</section>
+<script type="module">
+  import { TrackManager } from '/src/track.js';
+  import { RunManager } from '/src/run.js';
+  import { WorldRenderer } from '/src/render.js';
+  const reference = new URLSearchParams(location.search).has('reference');
+  const track = new TrackManager(), run = new RunManager(track);
+  const view = new WorldRenderer(document.querySelector('canvas'), track, { batchStatics: !reference });
+  run.start(); run.paused = true;
+  run.physics.teleport(run.player, { x: -16, y: 12.68, z: 285 });
+  const out = document.querySelector('#output'), button = document.querySelector('#run');
+  document.querySelector('#mode').textContent = reference ? 'Unbatched reference' : 'Optimized static batches';
+  function render() {
+    view.render(run, 1, 1 / 60, 0);
+    // Deliberate synchronization for measurement only; never used in the game loop.
+    view.renderer.getContext().finish();
+  }
+  render();
+  button.onclick = async () => {
+    button.disabled = true;
+    const rows = [];
+    try {
+      for (const variant of ['all', 'no-terrain', 'no-water', 'no-shadows']) {
+        view.scenery.ground.visible = variant !== 'no-terrain';
+        view.scenery.sea.visible = variant !== 'no-water';
+        view.renderer.shadowMap.enabled = variant !== 'no-shadows';
+        const samples = []; out.textContent = 'Measuring ' + variant;
+        for (let i = 0; i < 55; i++) {
+          await new Promise(requestAnimationFrame);
+          const start = performance.now(); render();
+          if (i >= 10) samples.push(performance.now() - start);
+        }
+        samples.sort((a, b) => a - b);
+        rows.push({ variant, meanMs: samples.reduce((a, b) => a + b) / samples.length,
+          p95Ms: samples[Math.floor(samples.length * .95)],
+          drawCalls: view.renderer.info.render.calls, triangles: view.renderer.info.render.triangles });
+      }
+      out.textContent = JSON.stringify(rows, null, 2);
+    } finally {
+      view.scenery.ground.visible = view.scenery.sea.visible = true;
+      view.renderer.shadowMap.enabled = true; button.disabled = false; render();
+    }
+  };
+</script>
+</html>

@@ -1,6 +1,6 @@
 import RAPIER from './rapier.js';
 import { PHYSICS, VEHICLE, clamp } from './config.js';
-import { roadMeshData, terrainMeshData } from './surfaces.js';
+import { roadCollisionMeshes, terrainCollisionMeshes } from './surfaces.js';
 import { yawFromRotation, rotateVector } from './vehicle.js';
 import { infrastructure } from './infrastructure.js';
 import { WaterVolume } from './water.js';
@@ -10,13 +10,12 @@ import { rotationFromAngles, rotationFromEuler } from './vehicle.js';
 
 const zero = { x: 0, y: 0, z: 0 }, identity = { x: 0, y: 0, z: 0, w: 1 };
 export class PhysicsWorld {
-  constructor(track, { terrain = true, scenery = terrain } = {}) {
+  constructor(track, { terrain = true, scenery = terrain, roadSectionLength = 64, terrainSectionSize = 128 } = {}) {
     this.track = track; this.world = new RAPIER.World({ x: 0, y: -PHYSICS.gravity, z: 0 }); this.tags = new Map(); this.solids = [];
     this.world.numSolverIterations = 8; this.world.integrationParameters.maxCcdSubsteps = 4;
     this.events = new RAPIER.EventQueue(true); this.water = new WaterVolume(track); this.debris = [];
-    const road = roadMeshData(track);
-    this.addStatic(RAPIER.ColliderDesc.trimesh(road.vertices, road.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0.75), 'road');
-    if (terrain) { const ground = terrainMeshData(track); this.addStatic(RAPIER.ColliderDesc.trimesh(ground.vertices, ground.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0.8), 'terrain'); }
+    for (const road of roadCollisionMeshes(track, roadSectionLength)) this.addStatic(RAPIER.ColliderDesc.trimesh(road.vertices, road.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0.75), 'road');
+    if (terrain) for (const ground of terrainCollisionMeshes(track, terrainSectionSize)) this.addStatic(RAPIER.ColliderDesc.trimesh(ground.vertices, ground.indices, RAPIER.TriMeshFlags.FIX_INTERNAL_EDGES).setFriction(0.8), 'terrain');
     for (const object of infrastructure(track)) this.addSolid(object);
     if (scenery) {
       const layout = sceneryLayout(track);

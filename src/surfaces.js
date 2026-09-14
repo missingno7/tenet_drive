@@ -52,3 +52,30 @@ export function roadMeshData(track) {
   }
   return { vertices: new Float32Array(vertices), indices: new Uint32Array(indices) };
 }
+
+/** Compact local triangle meshes, retaining winding and every source face. */
+export function partitionMesh(source, sectionSize, axes = [0, 2]) {
+  if (sectionSize === Infinity) return [source];
+  if (!(sectionSize > 0 && Number.isFinite(sectionSize))) throw new Error('Invalid collision section size');
+  const sections = new Map();
+  for (let i = 0; i < source.indices.length; i += 3) {
+    const ids = source.indices.subarray(i, i + 3);
+    const key = axes.map(axis => Math.floor((source.vertices[ids[0] * 3 + axis] + source.vertices[ids[1] * 3 + axis] + source.vertices[ids[2] * 3 + axis]) / (3 * sectionSize))).join(',');
+    if (!sections.has(key)) sections.set(key, { vertices: [], indices: [], remap: new Map() });
+    const section = sections.get(key);
+    for (const id of ids) {
+      if (!section.remap.has(id)) {
+        section.remap.set(id, section.vertices.length / 3);
+        section.vertices.push(...source.vertices.subarray(id * 3, id * 3 + 3));
+      }
+      section.indices.push(section.remap.get(id));
+    }
+  }
+  return [...sections.values()].map(s => ({ vertices: new Float32Array(s.vertices), indices: new Uint32Array(s.indices) }));
+}
+export function roadCollisionMeshes(track, sectionLength = 64) {
+  return partitionMesh(roadMeshData(track), sectionLength, [2]);
+}
+export function terrainCollisionMeshes(track, sectionSize = 128) {
+  return partitionMesh(terrainMeshData(track), sectionSize);
+}
