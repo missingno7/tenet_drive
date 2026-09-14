@@ -32,7 +32,8 @@ export class HUD {
     el['run-number'].textContent = String(run.runNumber).padStart(2, '0');
     el.direction.innerHTML = run.direction > 0 ? 'A <i>→</i> B' : 'B <i>→</i> A';
     el['run-label'].textContent = run.history ? 'HISTORY IS SOLID' : 'ESTABLISH HISTORY';
-    el['record-light'].textContent = run.status === 'playing' && !run.paused ? '● REC' : '○ HOLD';
+    el['record-light'].textContent = run.timelineActive ? '● REC' : '○ HOLD';
+    document.body.classList.toggle('inverting', run.status === 'transition');
     el.time.textContent = formatTime(run.elapsed); el.score.textContent = Math.floor(scoring.score).toLocaleString();
     el.speed.textContent = Math.round(run.player.speed * 3.6).toString().padStart(3, '0');
     el['speed-fill'].style.width = `${clamp(run.player.speed / VEHICLE.maxSpeed * 100, 0, 100)}%`;
@@ -40,15 +41,15 @@ export class HUD {
     el.distance.textContent = Number.isFinite(scoring.gap) && scoring.gap < 100 ? scoring.gap.toFixed(2) : '—';
     el.multiplier.textContent = `×${scoring.multiplier}`;
     el['proximity-fill'].style.width = `${clamp((5 - scoring.gap) / 5 * 100, 0, 100)}%`;
-    el['echo-status'].textContent = !run.echo ? 'NO HISTORY' : !run.echoState ? 'ECHO ENDED' : scoring.cooldown > 0 ? 'CONTACT' : 'SOLID';
-    el['echo-hint'].textContent = !run.echo ? 'Complete a run to create your first echo.' : !run.echoState ? 'History has ended. Bring this run home.' : scoring.cooldown > 0 ? 'Contact breaks the chain. Find some space.' : scoring.multiplier ? `Close for ${scoring.sustain.toFixed(1)} s · keep the chain alive.` : 'Get within 5 m. Stay close. Leave a gap.';
+    el['echo-status'].textContent = !run.echo ? 'NO HISTORY' : !run.echoState ? 'ECHO ENDED' : run.echoClock.phase === 'WaitingAtFinalState' ? 'WRECK WAITING' : scoring.cooldown > 0 ? 'CONTACT' : 'SOLID';
+    el['echo-hint'].textContent = !run.echo ? 'Finish or Continue after a crash to create an echo.' : !run.echoState ? 'History has ended. Bring this run home.' : run.echoClock.phase === 'WaitingAtFinalState' ? `Approach within ${run.echoClock.activationDistance} m to start the reverse crash. The wreck is solid.` : scoring.cooldown > 0 ? 'Contact breaks the chain. Find some space.' : scoring.multiplier ? `Close for ${scoring.sustain.toFixed(1)} s · keep the chain alive.` : 'Get within 5 m. Stay close. Leave a gap.';
     el['echo-panel'].classList.toggle('hot', scoring.multiplier >= 8);
     el['progress-fill'].style.width = `${(run.direction > 0 ? run.progress : 1 - run.progress) * 100}%`;
     el['progress-start'].textContent = run.direction > 0 ? 'A' : 'B'; el['progress-end'].textContent = run.direction > 0 ? 'B' : 'A';
     if (run.notice) { this.showNotice(run.notice); run.notice = null; }
     this.noticeTime = Math.max(0, this.noticeTime - dt); el.notice.style.opacity = this.noticeTime > 0 ? '1' : '0';
     el['debug-panel'].hidden = !debug;
-    if (debug) el['debug-text'].textContent = `${Math.round(fps)} FPS · PHYSICS 120 HZ\nLIVE       ${run.elapsed.toFixed(3)} s\nREVERSE    ${Math.max(0, (run.echo?.replay.duration ?? 0) - run.elapsed).toFixed(3)} s\nSAMPLES    ${run.recorder.frames.length}\nHISTORY    ${run.echo?.replay.frames.length ?? 0}\nCHECKPOINT ${run.checkpoints.next}/${run.checkpoints.targets.length}\nCLEARANCE  ${gapText(scoring.gap)}\nBEST GAP   ${gapText(scoring.bestGap)}\nIMPACT     ${run.impact.toFixed(1)} m/s`;
+    if (debug) el['debug-text'].textContent = `${Math.round(fps)} FPS · PHYSICS 240 HZ\nLIVE       ${run.elapsed.toFixed(3)} s\nREVERSE    ${Math.max(0, (run.echo?.replay.duration ?? 0) - run.echoElapsed).toFixed(3)} s\nECHO PHASE ${run.echoClock?.phase ?? 'None'}\nEVENTS     ${run.recorder.events.length}\nSAMPLES    ${run.recorder.frames.length}\nHISTORY    ${run.echo?.replay.frames.length ?? 0}\nCHECKPOINT ${run.checkpoints.next}/${run.checkpoints.targets.length}\nCLEARANCE  ${gapText(scoring.gap)}\nBEST GAP   ${gapText(scoring.bestGap)}\nIMPACT     ${run.impact.toFixed(1)} m/s`;
     this.map.clearRect(0, 0, 300, 220); this.map.drawImage(this.mapBase, 0, 0);
     for (const [state, color] of [[run.echoState, '#f39ddd'], [run.player, '#dff58a']]) if (state) {
       const [x, y] = this.xy(state.position); this.map.fillStyle = color; this.map.strokeStyle = '#10212b'; this.map.lineWidth = 2; this.map.beginPath(); this.map.arc(x, y, 4.5, 0, Math.PI * 2); this.map.fill(); this.map.stroke();
@@ -56,23 +57,22 @@ export class HUD {
     this.updateOverlay(run);
   }
   updateOverlay(run) {
-    const key = this.helpOpen ? 'help' : run.paused ? 'paused' : run.status === 'failed' ? 'playing' : run.status;
+    const key = this.helpOpen ? 'help' : run.paused ? 'paused' : ['crashing', 'transition'].includes(run.status) ? 'playing' : run.status;
     const el = this.elements;
     if (key !== this.overlayKey) {
       this.overlayKey = key; el.overlay.hidden = key === 'playing';
       if (key === 'intro') { el.modal.innerHTML = this.introMarkup; document.getElementById('start').onclick = this.actions.start; }
-      if (key === 'transition') {
-        const result = run.lastResult;
-        el.modal.innerHTML = `<div class="eyebrow">RUN ${String(result.runNumber).padStart(2, '0')} / COMPLETE</div><h2>TIMELINE <span style="color:var(--lime)">SEALED.</span></h2><p>Your route is now solid history. The next run starts beside your reversed echo.</p><div class="results"><div><label>RUN TIME</label><b>${formatTime(result.time)}</b></div><div><label>PROXIMITY SCORE</label><b>${result.score.toLocaleString()}</b></div><div><label>BEST CLEAN CLEARANCE</label><b>${gapText(result.bestGap)}</b></div><div><label>MAX MULTIPLIER</label><b>×${result.maxMultiplier}</b></div></div><button class="primary" id="continue">NEXT: ${run.direction > 0 ? 'B → A' : 'A → B'}<span id="countdown"></span></button><small>Only successful runs become history.</small>`;
-        document.getElementById('continue').onclick = this.actions.advance;
+      if (key === 'decision') {
+        el.modal.innerHTML = `<div class="eyebrow">TIMELINE AT A CROSSROADS</div><h2>INVERT AT THE CRASH?</h2><p>Continue ends this run here and starts ${run.direction > 0 ? 'B → A' : 'A → B'} from the other endpoint. Your wreck stays where it fell. Approach it to watch the recorded crash unfold backwards.</p><button class="primary" id="continue-crash">CONTINUE <span>↗</span></button><button class="secondary" id="retry-crash">RESTART RUN</button><small>Restart discards this attempt. Your previous history stays intact.</small>`;
+        document.getElementById('continue-crash').onclick = this.actions.continueRun;
+        document.getElementById('retry-crash').onclick = this.actions.restart;
       }
       if (key === 'paused' || key === 'help') {
-        el.modal.innerHTML = `<div class="eyebrow">TENET DRIVE / ${key === 'help' ? 'FIELD GUIDE' : 'TIME SUSPENDED'}</div><h2>${key === 'help' ? 'KNOW YOUR TIMELINE.' : 'TAKE A BREATHER.'}</h2><p>Finish to reverse direction. Your last drive plays backwards beside you, with the car still facing its original way. It cannot be pushed. Clean, sustained proximity earns the most.</p><div class="help-list"><span><kbd>W / ↑</kbd> Accelerate</span><span><kbd>S / ↓</kbd> Brake / reverse</span><span><kbd>A D / ← →</kbd> Steer</span><span><kbd>SPACE</kbd> Handbrake</span><span><kbd>R</kbd> Retry current run</span><span><kbd>ESC / P</kbd> Pause</span><span><kbd>F3</kbd> Debug overlay</span><span><kbd>M</kbd> Toggle sound</span></div><p style="font-size:12px">Gamepad: left stick to steer, RT to drive, LT to brake, A to drift. Take either split lane. The striped ramp launches in both directions. Retry keeps the last valid echo.</p><button class="primary" id="resume">${run.status === 'intro' ? 'BACK TO START' : 'RESUME TIMELINE'} <span>↗</span></button><button class="secondary" id="new-timeline">RESET TO RUN 01 · CLEAR HISTORY</button>`;
+        el.modal.innerHTML = `<div class="eyebrow">TENET DRIVE / ${key === 'help' ? 'FIELD GUIDE' : 'TIME SUSPENDED'}</div><h2>${key === 'help' ? 'KNOW YOUR TIMELINE.' : 'TAKE A BREATHER.'}</h2><p>Finish to invert at your arrival speed. Your last drive plays backwards beside you and cannot be pushed. After a wreck, Continue seals the crash and immediately starts the opposite direction. The wreck waits for you to approach, then retraces its recorded history backwards. Restart discards the attempt.</p><div class="help-list"><span><kbd>W / ↑</kbd> Accelerate</span><span><kbd>S / ↓</kbd> Brake / reverse</span><span><kbd>A D / ← →</kbd> Steer</span><span><kbd>SPACE</kbd> Handbrake</span><span><kbd>R</kbd> Retry current run</span><span><kbd>ESC / P</kbd> Pause</span><span><kbd>F3</kbd> Debug overlay</span><span><kbd>M</kbd> Toggle sound</span></div><p style="font-size:12px">Gamepad: left stick to steer, RT to drive, LT to brake, A to drift. Take either split lane. The striped ramp launches in both directions. Retry keeps the last valid echo. A historical wreck stays solid and frozen until you approach within 60 m.</p><button class="primary" id="resume">${run.status === 'intro' ? 'BACK TO START' : 'RESUME TIMELINE'} <span>↗</span></button><button class="secondary" id="new-timeline">RESET TO RUN 01 · CLEAR HISTORY</button>`;
         document.getElementById('resume').onclick = this.actions.resume;
         document.getElementById('new-timeline').onclick = this.actions.newTimeline;
       }
       if (!el.overlay.hidden) el.modal.querySelector('button')?.focus({ preventScroll: true });
     }
-    const countdown = document.getElementById('countdown'); if (key === 'transition' && countdown) countdown.textContent = `${Math.max(0, run.transitionTime).toFixed(1)}s`;
   }
 }

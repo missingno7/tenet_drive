@@ -199,13 +199,16 @@ export class WorldRenderer {
     this.impactEffects.update(run.effect);
     this.updateDamage(run.physics);
     this.updateHistory(run.history);
-    const playing = run.status === 'playing' && !run.paused;
+    const playing = run.timelineActive;
     const state = playing ? interpolateState(run.previousPlayer, run.player, alpha) : run.player;
     this.pose(this.player, state);
-    const renderTime = playing ? Math.max(0, run.elapsed - (1 - alpha) / 120) : run.elapsed;
-    const echoState = run.echo?.sample(renderTime);
+    const renderTime = playing ? run.previousEchoElapsed + (run.echoElapsed - run.previousEchoElapsed) * alpha : run.echoElapsed;
+    const echoState = run.sampleEcho(alpha);
     this.echo.visible = !!echoState;
-    if (echoState) this.pose(this.echo, echoState);
+    if (echoState) {
+      this.pose(this.echo, echoState);
+      for (const [id, part] of this.echo.userData.parts) part.visible = !echoState.detachedParts?.includes(id);
+    }
     for (const mesh of [this.player, this.echo]) for (const wheel of mesh.userData.wheels) {
       if (playing) wheel.rotation.x += (mesh === this.player ? run.player.speed : -Math.hypot(echoState?.linearVelocity.x ?? 0, echoState?.linearVelocity.z ?? 0)) * dt / 0.39;
     }

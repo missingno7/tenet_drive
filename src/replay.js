@@ -1,7 +1,7 @@
 import { clamp, lerp } from './config.js';
 const copyVector = v => ({ x: v.x, y: v.y, z: v.z });
 export function copyState(state) {
-  return { position: copyVector(state.position), rotation: { ...state.rotation }, linearVelocity: copyVector(state.linearVelocity), angularVelocity: copyVector(state.angularVelocity) };
+  return { position: copyVector(state.position), rotation: { ...state.rotation }, linearVelocity: copyVector(state.linearVelocity), angularVelocity: copyVector(state.angularVelocity), ...(state.detachedParts ? { detachedParts: [...state.detachedParts] } : {}) };
 }
 export function slerp(a, b, t) {
   let d = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
@@ -17,15 +17,16 @@ export function slerp(a, b, t) {
 }
 export function interpolateState(a, b, t) {
   const vector = (x, y) => ({ x: lerp(x.x, y.x, t), y: lerp(x.y, y.y, t), z: lerp(x.z, y.z, t) });
-  return { position: vector(a.position, b.position), rotation: slerp(a.rotation, b.rotation, t), linearVelocity: vector(a.linearVelocity, b.linearVelocity), angularVelocity: vector(a.angularVelocity, b.angularVelocity) };
+  const parts = (t < 1 ? a : b).detachedParts;
+  return { position: vector(a.position, b.position), rotation: slerp(a.rotation, b.rotation, t), linearVelocity: vector(a.linearVelocity, b.linearVelocity), angularVelocity: vector(a.angularVelocity, b.angularVelocity), ...(parts ? { detachedParts: [...parts] } : {}) };
 }
 export class ReplayRecorder {
-  constructor(dt) { this.dt = dt; this.frames = []; }
+  constructor(dt) { this.dt = dt; this.frames = []; this.events = []; }
   record(state) { this.frames.push({ time: this.frames.length * this.dt, ...copyState(state) }); }
-  finalize() { return new TemporalReplay(this.frames); }
+  finalize(options) { return new TemporalReplay(this.frames, this.events, options); }
 }
 export class TemporalReplay {
-  constructor(frames) {
+  constructor(frames, events = [], { endedBy = 'finish' } = {}) {
     if (frames.length < 2) throw new Error('A replay needs at least two states');
     this.frames = Object.freeze(frames.map(f => {
       const state = copyState(f);
@@ -33,10 +34,17 @@ export class TemporalReplay {
       return Object.freeze({ time: f.time, ...state });
     }));
     this.duration = this.frames.at(-1).time;
+    this.endedBy = endedBy;
+    this.events = Object.freeze(events.map(event => Object.freeze({ ...event,
+      position: Object.freeze({ ...event.position }),
+      wreckPosition: event.wreckPosition ? Object.freeze({ ...event.wreckPosition }) : undefined,
+    })));
     Object.freeze(this);
   }
   sample(time) {
     const t = clamp(time, 0, this.duration);
+    if (t === 0) return copyState(this.frames[0]);
+    if (t === this.duration) return copyState(this.frames.at(-1));
     let lo = 0, hi = this.frames.length - 1;
     while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (this.frames[mid].time <= t) lo = mid; else hi = mid; }
     const a = this.frames[lo], b = this.frames[hi];

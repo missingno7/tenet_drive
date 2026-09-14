@@ -34,19 +34,21 @@ export class GameAudio {
     this.filter.frequency.setTargetAtTime(160 + run.player.speed * 14, t, 0.1);
     this.engineGain.gain.setTargetAtTime(active ? 0.14 : 0, t, 0.04);
     const replay = run.echo?.replay;
-    if (active && replay && run.echoState) {
+    const echoTime = run.echoElapsed;
+    if (run.timelineActive && run.echoClock?.phase === 'ReversePlayback' && replay && run.echoState) {
       if (this.echoReplay !== replay) { this.stopEcho(); this.echoReplay = replay; this.echoBuffer = this.buffer(reverseEngineSamples(replay)); }
       // Restart at the current reverse-playback time on retries and resumes.
-      if (this.echoSource && run.elapsed < this.lastElapsed) this.stopEcho();
-      if (!this.echoSource && run.elapsed < this.echoBuffer.duration) {
-        this.echoSource = this.context.createBufferSource(); this.echoSource.buffer = this.echoBuffer; this.echoSource.connect(this.echoGain); this.echoSource.start(0, run.elapsed);
+      if (this.echoSource && (echoTime < this.lastElapsed || Math.abs(this.echoStartTime + t - this.echoStartedAt - echoTime) > 0.12)) this.stopEcho();
+      if (!this.echoSource && echoTime < this.echoBuffer.duration) {
+        this.echoSource = this.context.createBufferSource(); this.echoSource.buffer = this.echoBuffer; this.echoSource.connect(this.echoGain); this.echoSource.start(0, echoTime);
+        this.echoStartTime = echoTime; this.echoStartedAt = t;
       }
       const dx = run.echoState.position.x - run.player.position.x, dz = run.echoState.position.z - run.player.position.z;
       const distance = Math.hypot(dx, dz, run.echoState.position.y - run.player.position.y);
       this.echoGain.gain.setTargetAtTime(0.7 * (1 - clamp(distance / 75, 0, 1)) ** 2, t, 0.05);
       this.echoPan.pan.setTargetAtTime(clamp((-dx * Math.cos(run.player.yaw) + dz * Math.sin(run.player.yaw)) / 15, -1, 1), t, 0.05);
     } else this.stopEcho();
-    this.lastElapsed = run.elapsed;
+    this.lastElapsed = echoTime;
     if (run.paused) { this.stopVoices(); return; }
     if (run.effect && run.effect.id !== this.lastCrash) {
       this.lastCrash = run.effect.id;

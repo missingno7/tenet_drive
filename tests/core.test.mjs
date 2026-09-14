@@ -73,6 +73,8 @@ test('proximity rewards sustained driving and relative speed; contact and parkin
 /** Test driver operates the same throttle and steer interface as the keyboard. */
 export function driveInput(run, branch = -1, cruise = 25) {
   const p = run.player, t = run.track, d = run.direction;
+  // Let the equally fast echo pull ahead before merging onto the test racing line.
+  if (run.echoState && run.elapsed < 1) return { throttle: 0, brake: p.speed > 8 ? 1 : 0, steer: 0, handbrake: false };
   const lookZ = clamp(p.position.z + d * (7 + p.speed * 0.38), t.a, t.b);
   const targetX = t.center(lookZ) + branch * t.branchOffset(lookZ);
   const targetYaw = Math.atan2(targetX - p.position.x, lookZ - p.position.z);
@@ -260,7 +262,7 @@ test('terrain collision matches the visible mesh and produces an impact', t => {
   assert.ok(player.position.y > terrainSurfaceHeight(player.position.x, player.position.z, track));
 });
 
-test('falls reach water, sink visibly, then retry without replacing valid history', t => {
+test('falls reach water, sink visibly, then await a choice without replacing valid history', t => {
   const run = new RunManager(new TrackManager()); t.after(() => run.physics.dispose()); run.history = makeReplay(); run.direction = -1; run.runNumber = 2; run.restart();
   const history = run.history;
   run.physics.teleport(run.player, { x: 18, y: 5, z: 40 }, rotationFromAngles(0), { x: 0, y: -4, z: 0 });
@@ -271,8 +273,9 @@ test('falls reach water, sink visibly, then retry without replacing valid histor
   assert.ok(run.physics.collider.isEnabled());
   assert.ok(run.player.position.y < WATER_LEVEL);
   assert.ok(run.player.position.y > terrainSurfaceHeight(run.player.position.x, run.player.position.z, run.track));
-  assert.equal(run.status, 'failed');
-  for (let i = 0; i < 210; i++) run.step(idle);
+  assert.equal(run.status, 'crashing');
+  for (let i = 0; i < 800 && run.status !== 'decision'; i++) run.step(idle);
+  assert.equal(run.status, 'decision'); run.restart();
   assert.equal(run.status, 'playing'); assert.equal(run.direction, -1); assert.equal(run.runNumber, 2); assert.equal(run.history, history); assert.equal(run.crash, null);
 });
 

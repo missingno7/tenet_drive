@@ -62,22 +62,30 @@ export class PhysicsWorld {
       this.wheelColliders.push(attach(RAPIER.ColliderDesc.cylinder(0.12, SUSPENSION.radius - 0.03).setRotation({ x: 0, y: 0, z: Math.SQRT1_2, w: Math.SQRT1_2 }).setTranslation(connection.x, -0.3, connection.z)));
     }
     this.body.recomputeMassPropertiesFromColliders();
+    this.body.setLinvel(player.linearVelocity, true); this.body.setAngvel(player.angularVelocity, true);
     this.setEcho(echo, true); this.world.updateSceneQueries(); this.sync(player);
   }
   setEcho(state, initial = false) {
     if (!state) { if (this.echoBody) { this.tags.delete(this.echoCollider.handle); this.world.removeRigidBody(this.echoBody); this.echoBody = null; } return; }
     if (!this.echoBody) {
-      this.echoBody = this.world.createRigidBody(RAPIER.RigidBodyDesc.kinematicPositionBased().setTranslation(state.position.x, state.position.y, state.position.z).setRotation(state.rotation));
+      const desc = state.frozen ? RAPIER.RigidBodyDesc.fixed() : RAPIER.RigidBodyDesc.kinematicPositionBased();
+      this.echoBody = this.world.createRigidBody(desc.setTranslation(state.position.x, state.position.y, state.position.z).setRotation(state.rotation));
       this.echoCollider = this.world.createCollider(RAPIER.ColliderDesc.roundCuboid(VEHICLE.halfWidth - 0.12, VEHICLE.halfHeight - 0.12, VEHICLE.halfLength - 0.12, 0.12).setCollisionGroups(GROUPS.echo).setFriction(0.25).setRestitution(0.15), this.echoBody);
       this.tags.set(this.echoCollider.handle, 'echo');
     }
     if (initial) { this.echoBody.setTranslation(state.position, false); this.echoBody.setRotation(state.rotation, false); }
+    if (state.frozen) {
+      if (!this.echoBody.isFixed()) this.echoBody.setBodyType(RAPIER.RigidBodyType.Fixed, true);
+      return;
+    }
+    if (this.echoBody.isFixed()) this.echoBody.setBodyType(RAPIER.RigidBodyType.KinematicPositionBased, true);
     this.echoBody.setNextKinematicTranslation(state.position); this.echoBody.setNextKinematicRotation(state.rotation);
   }
   teleport(player, position, rotation = player.rotation, velocity = zero, angular = zero) {
     this.body.setTranslation(position, true); this.body.setRotation(rotation, true); this.body.setLinvel(velocity, true); this.body.setAngvel(angular, true); this.sync(player);
   }
   sync(player) {
+    player.detachedParts = [...this.detached];
     player.position = { ...this.body.translation() }; player.rotation = { ...this.body.rotation() };
     player.linearVelocity = { ...this.body.linvel() }; player.angularVelocity = { ...this.body.angvel() }; player.yaw = yawFromRotation(player.rotation);
     player.grounded = WHEELS.some((_, i) => this.vehicle.wheelIsInContact(i));
@@ -165,6 +173,7 @@ export class PhysicsWorld {
     // signal by actual incoming speed normal to the contacted surface.
     impact = Math.min(impact, closingSpeed);
     this.breakParts(impact, point);
+    player.detachedParts = [...this.detached];
     player.drifting = player.grounded && player.speed > 8 && !!input.handbrake;
     return { impact, contacts, water: this.submerged > 0, submerged: this.submerged, point };
   }

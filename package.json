@@ -7,7 +7,7 @@
     "dev": "node scripts/serve.mjs",
     "start": "node scripts/serve.mjs",
     "build": "node scripts/build.mjs",
-    "test": "node --test tests/core.test.mjs tests/physics.test.mjs",
+    "test": "node --test tests/core.test.mjs tests/physics.test.mjs tests/timeline.test.mjs",
     "benchmark": "node scripts/benchmark-physics.mjs"
   },
   "dependencies": {

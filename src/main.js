@@ -12,6 +12,7 @@ const clear = () => { input?.clear(); accumulator = 0; };
 const actions = {
   start() { clear(); run.start(); hud.helpOpen = false; renderer.chase.reset(); },
   restart() { clear(); hud.helpOpen = false; run.restart(); renderer.chase.reset(); },
+  continueRun() { clear(); hud.helpOpen = false; run.continueRun(); },
   advance() { clear(); run.advance(); renderer.chase.reset(); },
   pause() { if (run.status === 'intro') { actions.help(); return; } clear(); hud.helpOpen = false; run.paused = !run.paused; },
   help() { clear(); hud.helpOpen = true; run.paused = true; },
@@ -30,7 +31,7 @@ try {
     if (code === 'KeyM') actions.sound();
     // Enter on a focused button is handled natively, avoiding a second activation.
     if (code === 'Enter' && document.activeElement?.tagName !== 'BUTTON') {
-      if (run.status === 'intro') actions.start(); else if (run.status === 'transition') actions.advance(); else if (run.paused) actions.resume();
+      if (run.paused) actions.resume(); else if (run.status === 'intro') actions.start(); else if (run.status === 'transition') actions.advance(); else if (run.status === 'decision') actions.continueRun();
     }
   });
   window.addEventListener('blur', () => { if (run.status !== 'intro') { run.paused = true; clear(); } });
@@ -52,7 +53,7 @@ try {
   }
   requestAnimationFrame(frame);
   // Read-only inspection for reproducible manual QA; gameplay mutations remain in the UI.
-  window.tenetDrive = Object.freeze({ snapshot: () => ({ status: run.status, paused: run.paused, direction: run.direction, run: run.runNumber, time: run.elapsed, score: run.scoring.score, position: { ...run.player.position }, speed: run.player.speed, echoTime: run.echo ? Math.max(0, run.echo.replay.duration - run.elapsed) : null, samples: run.recorder.frames.length, historySamples: run.history?.frames.length ?? 0 }) });
+  window.tenetDrive = Object.freeze({ snapshot: () => ({ status: run.status, paused: run.paused, direction: run.direction, run: run.runNumber, time: run.elapsed, score: run.scoring.score, position: { ...run.player.position }, speed: run.player.speed, echoTime: run.echo ? Math.max(0, run.echo.replay.duration - run.echoElapsed) : null, echoPhase: run.echoClock?.phase ?? null, samples: run.recorder.frames.length, historySamples: run.history?.frames.length ?? 0, events: run.recorder.events.length }) });
 } catch (error) {
   console.error(error);
   const modal = document.getElementById('modal');
